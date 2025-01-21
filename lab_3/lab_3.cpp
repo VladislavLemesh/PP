@@ -1,5 +1,3 @@
-﻿// Лаб 3 - умножение матриц
-
 #include <assert.h>
 #include <algorithm>
 #include <chrono>
@@ -8,40 +6,8 @@
 #include <iostream>
 #include <random>
 #include <vector>
-#include <omp.h>
 
 using namespace std;
-
-//                CxR
-// A принадлежит R
-//
-// Acr - элемент матрицы a в столбце c, строке r
-// 
-// c принадлежит Zc, r принадлежит Zr.
-// 
-//  C1 x R1    C2 x C1         C2 x R1 
-// S        x S        -----> S
-//
-// ^          ^               ^
-// |          |               |
-// B          C               A
-//
-// 0 <= i <= C2 - 1
-//                   => A aij = Сумма от l = 0 до l = C1 - 1 (b_lj * c_il)
-// 0 <= j <= R1 - 1
-//
-
-// Matrices can be multiplied only if the length of the first 
-    // matrix is equal to height of the second.
-    //
-    //                     <---k--->   <---k--->
-    // <-------n------->   ^           ^
-    // ^                   |           |
-    // |                   |           m
-    // m                 * n         = |
-    // |                   |           v
-    // v                   |
-    //                     v
 
 void mul_matrix(double* A, size_t cA, size_t rA,
     const double* B, size_t cB, size_t rB,
@@ -63,9 +29,7 @@ void mul_matrix(double* A, size_t cA, size_t rA,
     }
 }
 
-//_mm512_mul_pd
-//_mm512_fmadd_pd
-void mul_matrix_avx_512(double* A,
+void mul_matrix_avx512(double* A,
     size_t cA, size_t rA,
     const double* B,
     size_t cB, size_t rB,
@@ -92,7 +56,7 @@ void mul_matrix_avx_512(double* A,
     }
 }
 
-void mul_matrix_avx_256(double* A,
+void mul_matrix_avx2(double* A,
     size_t cA, size_t rA,
     const double* B,
     size_t cB, size_t rB,
@@ -119,30 +83,7 @@ void mul_matrix_avx_256(double* A,
     }
 }
 
-// Получение матрицы перестановки
-pair<vector<double>, vector<double>> get_permutation_matrix(size_t n)
-{
-    vector<size_t> permut(n);
-
-    for (size_t i = 0; i < n; i++)
-    {
-        permut[i] = (n - (i + 10)) % n;
-    }
-
-    vector<double> vf(n * n), vi(n * n);
-
-    for (size_t c = 0; c < n; c++)
-    {
-        for (size_t r = 0; r < n; r++)
-        {
-            vf[c * n + r] = vi[r * n + c] = 1;
-        }
-    }
-
-    return pair{ vf, vi }; // C++ 17
-}
-
-// Получение матрицы перестановки (другая реализация)
+// ������� ������������
 vector<double> generate_permutation_matrix(std::size_t n)
 {
     vector<double> permut_matrix(n * n, 0);
@@ -181,9 +122,9 @@ int main(int argc, char** argv)
     };
 
     auto randomize_matrix = [](double* matrix, std::size_t matrix_order) {
-        uniform_real_distribution<double> unif(0, 100000);
-        default_random_engine re;
-        for (size_t i = 0; i < matrix_order * matrix_order; i++)
+        std::uniform_real_distribution<double> unif(0, 100000);
+        std::default_random_engine re;
+        for (std::size_t i = 0; i < matrix_order * matrix_order; i++)
         {
             matrix[i] = unif(re);
         }
@@ -193,27 +134,26 @@ int main(int argc, char** argv)
 
     vector<double> A(matrix_order * matrix_order),
         C(matrix_order * matrix_order),
-        D(matrix_order * matrix_order);
+        D(matrix_order * matrix_order),
+        E(matrix_order * matrix_order);
     vector<double> B = generate_permutation_matrix(matrix_order);
-    // делали ещё так
-    // auto [A, B] = get_permutation_matrix(matrix_order);
 
-    //show_matrix(B.data(), matrix_order, matrix_order);
     randomize_matrix(A.data(), matrix_order);
 
     std::cout << "==Correctness test. ";
-    //Perform naive multiplication.
     mul_matrix(C.data(), matrix_order, matrix_order,
         A.data(), matrix_order, matrix_order,
         B.data(), matrix_order, matrix_order);
 
-    //Perform vectorized multiplication.
-    mul_matrix_avx_256(D.data(), matrix_order, matrix_order,
+    mul_matrix_avx2(D.data(), matrix_order, matrix_order,
         A.data(), matrix_order, matrix_order,
         B.data(), matrix_order, matrix_order);
-    // mul_matrix_avx_512(D.data(), matrix_order, matrix_order,
-       // A.data(), matrix_order, matrix_order,
-       // B.data(), matrix_order, matrix_order);
+
+    /*
+    mul_matrix_avx512(E.data(), matrix_order, matrix_order,
+        A.data(), matrix_order, matrix_order,
+        B.data(), matrix_order, matrix_order);
+    */
 
     if (memcmp(static_cast<void*>(C.data()),
         static_cast<void*>(D.data()),
@@ -224,60 +164,71 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    //Two possibilities: both functions work properly or both functions
-    //fail in the same way. We pray that everything works.
+    if (memcmp(static_cast<void*>(C.data()),
+        static_cast<void*>(E.data()),
+        matrix_order * matrix_order * sizeof(double)))
+    {
+        cout << "FAILURE==\n";
+        output.close();
+        return -1;
+    }
+
     cout << "ok.==\n";
-    //show_matrix(C.data(), matrix_order, matrix_order);
-    //show_matrix(D.data(), matrix_order, matrix_order);
 
     std::cout << "==Performance tests.==\n";
     output << "Type,Duration,Acceleration\n";
 
-    //Scalar multiplication. C = A*B.
-    double duration = 0;
+    double time_avg_1 = 0;
     for (std::size_t i = 0; i < exp_count; i++)
     {
         randomize_matrix(A.data(), matrix_order);
-        double t1 = omp_get_wtime();
+        auto t1 = std::chrono::steady_clock::now();
         mul_matrix(C.data(), matrix_order, matrix_order,
             A.data(), matrix_order, matrix_order,
             B.data(), matrix_order, matrix_order);
-        double t2 = omp_get_wtime();
-        duration += t2 - t1;
-
-        // auto t1 = std::chrono::steady_clock::now();
-        // mul_matrix(C.data(), matrix_order, matrix_order,
-        //     A.data(), matrix_order, matrix_order,
-        //     B.data(), matrix_order, matrix_order);
-        // auto t2 = std::chrono::steady_clock::now();
-        // duration += std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+        auto t2 = std::chrono::steady_clock::now();
+        time_avg_1 += std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
     }
-    duration /= exp_count;
+    time_avg_1 /= exp_count;
 
-    std::cout << "scalar multiplication: duration = " << duration << "s, acceleration = 1\n";
-    output << "Scalar," << duration << ",1\n";
+    std::cout << "scalar multiplication: duration = " << time_avg_1 << "ms, acceleration = 1\n";
+    output << "Scalar," << time_avg_1 << ",1\n";
 
-    //Vectorized matrix multiplication using AVX2. D = A*B.
-    double duration_avx = 0;
+    double time_avg_2 = 0;
     for (std::size_t i = 0; i < exp_count; i++)
     {
         randomize_matrix(A.data(), matrix_order);
-        double t1 = omp_get_wtime();
-        mul_matrix_avx_256(D.data(), matrix_order, matrix_order,
+        auto t1 = std::chrono::steady_clock::now();
+        mul_matrix_avx2(D.data(), matrix_order, matrix_order,
             A.data(), matrix_order, matrix_order,
             B.data(), matrix_order, matrix_order);
-        // mul_matrix_avx_512(D.data(), matrix_order, matrix_order,
-           // A.data(), matrix_order, matrix_order,
-           // B.data(), matrix_order, matrix_order);
-        double t2 = omp_get_wtime();
-        duration_avx += t2 - t1;
+        auto t2 = std::chrono::steady_clock::now();
+        time_avg_2 += std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
     }
-    duration_avx /= exp_count;
+    time_avg_2 /= exp_count;
 
-    std::cout << "vectorized multiplication: duration = " << duration_avx
-        << "s, acceleration = " << duration / duration_avx << "\n";
-    output << "Vectorized," << duration_avx << "," << duration / duration_avx << "\n";
+    std::cout << "vectorized multiplication: duration = " << time_avg_2
+        << "ms, acceleration = " << time_avg_1 / time_avg_2 << "\n";
+    output << "Vectorized," << time_avg_2 << "," << time_avg_1 / time_avg_2 << "\n";
 
+    /*
+    double time_avg_3 = 0;
+    for (std::size_t i = 0; i < exp_count; i++)
+    {
+        randomize_matrix(A.data(), matrix_order);
+        auto t1 = std::chrono::steady_clock::now();
+        mul_matrix_avx512(D.data(), matrix_order, matrix_order,
+            A.data(), matrix_order, matrix_order,
+            B.data(), matrix_order, matrix_order);
+        auto t2 = std::chrono::steady_clock::now();
+        time_avg_3 += std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    }
+    time_avg_3 /= exp_count;
+
+    std::cout << "vectorized avx512 multiplication: duration = " << time_avg_3
+        << "ms, acceleration = " << time_avg_1 / time_avg_3 << "\n";
+    output << "VectorizedAVX512," << time_avg_3 << "," << time_avg_1 / time_avg_3 << "\n";
+    */
     std::cout << "==Done.==\n";
 
     output.close();
